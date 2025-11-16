@@ -5,14 +5,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy pyproject.toml
+# Copy pyproject.toml and source code
 COPY pyproject.toml ./
+COPY src/ ./src/
 
 # Install dependencies
 RUN pip install --no-cache-dir -e .
-
-# Copy source code
-COPY src/ ./src/
 
 # Create uploads directory for file storage
 RUN mkdir -p /data/uploads && chmod -R 777 /data
