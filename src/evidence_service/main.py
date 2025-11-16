@@ -1,57 +1,91 @@
 """
-FaultMaven Evidence Service Microservice
+FM Evidence Service - Main Application
 
-FaultMaven Evidence Collection Microservice
+FastAPI application for evidence file management.
 """
+
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import logging
+
+from evidence_service.config.settings import settings
+from evidence_service.api.routes.evidence import router as evidence_router
+from evidence_service.infrastructure.database.client import db_client
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Create FastAPI application
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
+    # Startup
+    logger.info(f"Starting {settings.service_name} v{settings.environment}")
+    logger.info(f"Storage type: {settings.storage_type}")
+    logger.info(f"Database: {settings.database_url}")
+
+    # Initialize database
+    await db_client.initialize()
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down Evidence Service")
+    await db_client.close()
+
+
+# Create FastAPI app
 app = FastAPI(
-    title="Evidence Service Service",
-    description="FaultMaven Evidence Collection Microservice",
-    version="0.1.0"
+    title="FM Evidence Service",
+    description="Microservice for managing evidence files (logs, screenshots, documents, metrics)",
+    version="0.1.0",
+    lifespan=lifespan
 )
 
-# Configure CORS
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "Evidence Service",
-        "version": "0.1.0"
-    }
+# Include routers
+app.include_router(evidence_router)
 
 
+# Root endpoint
 @app.get("/")
 async def root():
-    """Root endpoint."""
+    """Root endpoint"""
     return {
-        "service": "Evidence Service Service",
+        "service": settings.service_name,
         "version": "0.1.0",
-        "description": "FaultMaven Evidence Collection Microservice"
+        "status": "running",
+        "environment": settings.environment
     }
+
+
+# Health endpoint (simple version at root level)
+@app.get("/health")
+async def health():
+    """Simple health check"""
+    return {"status": "healthy", "service": settings.service_name}
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(
+        "evidence_service.main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=True if settings.environment == "development" else False
+    )
