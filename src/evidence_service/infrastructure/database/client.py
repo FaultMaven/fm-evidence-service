@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
+from fm_core_lib.utils import service_startup_retry
 
 from evidence_service.config.settings import settings
 from evidence_service.infrastructure.database.models import Base
@@ -22,6 +23,20 @@ class DatabaseClient:
     def __init__(self):
         self.engine = None
         self.session_maker = None
+
+    @service_startup_retry
+    async def verify_connection(self):
+        """Verify database connection with retry logic.
+
+        This is called before migrations/table creation to ensure the database
+        is ready. Retries with exponential backoff for K8s/scale-to-zero scenarios.
+        """
+        if not self.engine:
+            raise RuntimeError("Engine not initialized. Call initialize() first.")
+
+        async with self.engine.begin() as conn:
+            await conn.execute("SELECT 1")
+        logger.info("Database connection verified")
 
     async def initialize(self):
         """Initialize database engine and create tables"""
@@ -41,7 +56,11 @@ class DatabaseClient:
             expire_on_commit=False,
         )
 
-        # Create tables
+        # Verify connection with retry logic
+        await self.verify_connection()
+
+        # Note: Alembic migrations run in Dockerfile CMD before uvicorn starts
+        # create_all() is kept for backward compatibility with non-Docker setups
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 

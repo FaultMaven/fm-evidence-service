@@ -7,6 +7,7 @@ Core business logic for evidence file management and operations.
 import logging
 import mimetypes
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 from uuid import uuid4
@@ -17,8 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from evidence_service.config.settings import settings
 from evidence_service.models.evidence import Evidence, EvidenceType
 from evidence_service.infrastructure.database.models import EvidenceDB
-from evidence_service.infrastructure.storage.local_storage import LocalStorage
-from evidence_service.infrastructure.storage.s3_storage import S3Storage
+from evidence_service.infrastructure.storage import get_storage_provider
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,8 @@ class EvidenceManager:
     """Business logic for evidence management"""
 
     def __init__(self):
-        # Initialize storage based on configuration
-        if settings.storage_type == "s3":
-            self.storage = S3Storage()
-        else:
-            self.storage = LocalStorage()
+        # Get storage provider from factory (deployment-neutral)
+        self.storage = get_storage_provider()
 
     def _classify_evidence_type(self, filename: str, file_type: str) -> EvidenceType:
         """
@@ -128,12 +125,17 @@ class EvidenceManager:
         # Classify evidence type
         evidence_type = self._classify_evidence_type(filename, file_type)
 
-        # Save file to storage
-        storage_path = await self.storage.save_file(
-            file_content=file_content,
+        # Build storage key (user_id/case_id/evidence_id_filename)
+        case_dir = case_id or "unlinked"
+        storage_key = f"{user_id}/{case_dir}/{evidence_id}_{filename}"
+
+        # Save file to storage using StorageProvider interface
+        file_stream = BytesIO(file_content)
+        storage_path = await self.storage.upload(
+            file_stream=file_stream,
+            key=storage_key,
+            content_type=file_type,
             user_id=user_id,
-            evidence_id=evidence_id,
-            filename=filename,
             case_id=case_id
         )
 
@@ -233,9 +235,12 @@ class EvidenceManager:
         if not evidence:
             raise FileNotFoundError(f"Evidence not found: {evidence_id}")
 
-        # Download from storage
-        file_content = await self.storage.get_file(evidence.storage_path)
+        # Download from storage using streaming
+        file_chunks = []
+        async for chunk in self.storage.download_stream(evidence.storage_path):
+            file_chunks.append(chunk)
 
+        file_content = b''.join(file_chunks)
         return file_content, evidence.filename
 
     async def delete_evidence(self, evidence_id: str, user_id: str, db: AsyncSession) -> bool:
@@ -255,8 +260,8 @@ class EvidenceManager:
         if not evidence:
             return False
 
-        # Delete from storage
-        await self.storage.delete_file(evidence.storage_path)
+        # Delete from storage using StorageProvider interface
+        await self.storage.delete(evidence.storage_path)
 
         # Delete from database
         stmt = select(EvidenceDB).where(EvidenceDB.evidence_id == evidence_id)
