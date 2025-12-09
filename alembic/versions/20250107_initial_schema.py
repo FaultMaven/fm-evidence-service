@@ -25,8 +25,7 @@ def upgrade() -> None:
     op.create_table(
         'evidence',
         sa.Column('evidence_id', sa.String(length=36), nullable=False),
-        sa.Column('user_id', sa.String(length=100), nullable=False),
-        sa.Column('case_id', sa.String(length=100), nullable=True),
+        sa.Column('case_id', sa.String(length=100), nullable=False),
         sa.Column('filename', sa.String(length=255), nullable=False),
         sa.Column('file_type', sa.String(length=100), nullable=False),
         sa.Column('file_size', sa.Integer(), nullable=False),
@@ -41,7 +40,6 @@ def upgrade() -> None:
 
     # Create indexes for performance
     op.create_index(op.f('ix_evidence_evidence_id'), 'evidence', ['evidence_id'], unique=False)
-    op.create_index(op.f('ix_evidence_user_id'), 'evidence', ['user_id'], unique=False)
     op.create_index(op.f('ix_evidence_case_id'), 'evidence', ['case_id'], unique=False)
     op.create_index(op.f('ix_evidence_evidence_type'), 'evidence', ['evidence_type'], unique=False)
     op.create_index(op.f('ix_evidence_uploaded_at'), 'evidence', ['uploaded_at'], unique=False)
@@ -52,6 +50,5 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_evidence_uploaded_at'), table_name='evidence')
     op.drop_index(op.f('ix_evidence_evidence_type'), table_name='evidence')
     op.drop_index(op.f('ix_evidence_case_id'), table_name='evidence')
-    op.drop_index(op.f('ix_evidence_user_id'), table_name='evidence')
     op.drop_index(op.f('ix_evidence_evidence_id'), table_name='evidence')
     op.drop_table('evidence')

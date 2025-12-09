@@ -21,7 +21,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "aioboto3>=12.0.0",
     "types-aiobotocore[s3]>=2.6.0",
-    "fm-core-lib @ git+https://github.com/FaultMaven/fm-core-lib.git@main",
+    "fm-core-lib",
 ]
 
 [project.optional-dependencies]

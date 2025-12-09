@@ -79,12 +79,16 @@ async def upload_evidence(
         # Read file content
         file_content = await file.read()
 
+        # Validate case_id is provided
+        if not case_id:
+            raise HTTPException(status_code=400, detail="case_id is required")
+
         # Upload evidence
         evidence = await manager.upload_evidence(
             file_content=file_content,
             filename=file.filename,
-            user_id=x_user_id,
             case_id=case_id,
+            uploaded_by=x_user_id,
             description=description,
             db=db
         )
@@ -122,7 +126,7 @@ async def get_evidence_metadata(
 
     Args:
         evidence_id: Evidence ID
-        x_user_id: User ID from API gateway header
+        x_user_id: User ID from API gateway header (for future authorization)
         db: Database session
         manager: Evidence manager
 
@@ -130,9 +134,12 @@ async def get_evidence_metadata(
         Evidence metadata
 
     Raises:
-        404: Evidence not found or unauthorized
+        404: Evidence not found
+
+    Note:
+        Authorization through case ownership should be handled at API gateway
     """
-    evidence = await manager.get_evidence(evidence_id, x_user_id, db)
+    evidence = await manager.get_evidence(evidence_id, db)
 
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
@@ -152,7 +159,7 @@ async def download_evidence(
 
     Args:
         evidence_id: Evidence ID
-        x_user_id: User ID from API gateway header
+        x_user_id: User ID from API gateway header (for future authorization)
         db: Database session
         manager: Evidence manager
 
@@ -160,10 +167,13 @@ async def download_evidence(
         File download stream
 
     Raises:
-        404: Evidence not found or unauthorized
+        404: Evidence not found
+
+    Note:
+        Authorization through case ownership should be handled at API gateway
     """
     try:
-        file_content, filename = await manager.download_evidence(evidence_id, x_user_id, db)
+        file_content, filename = await manager.download_evidence(evidence_id, db)
 
         # Return as streaming response
         return StreamingResponse(
@@ -192,7 +202,7 @@ async def delete_evidence(
 
     Args:
         evidence_id: Evidence ID
-        x_user_id: User ID from API gateway header
+        x_user_id: User ID from API gateway header (for logging)
         db: Database session
         manager: Evidence manager
 
@@ -200,9 +210,12 @@ async def delete_evidence(
         204 No Content
 
     Raises:
-        404: Evidence not found or unauthorized
+        404: Evidence not found
+
+    Note:
+        Authorization through case ownership should be handled at API gateway
     """
-    deleted = await manager.delete_evidence(evidence_id, x_user_id, db)
+    deleted = await manager.delete_evidence(evidence_id, db)
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Evidence not found")
@@ -213,39 +226,41 @@ async def delete_evidence(
 
 @router.get("", response_model=EvidenceListResponse)
 async def list_evidence(
+    case_id: str = Query(..., description="Case ID to list evidence for"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
-    case_id: Optional[str] = Query(None, description="Filter by case ID"),
     evidence_type: Optional[EvidenceType] = Query(None, description="Filter by evidence type"),
     x_user_id: str = Header(..., alias="X-User-ID"),
     db: AsyncSession = Depends(get_db),
     manager: EvidenceManager = Depends(get_evidence_manager)
 ) -> EvidenceListResponse:
     """
-    List user's evidence with pagination and filtering
+    List evidence for a case with pagination and filtering
 
     Args:
+        case_id: Case ID to list evidence for (required)
         page: Page number (1-indexed)
         page_size: Items per page (max 100)
-        case_id: Optional case ID filter
         evidence_type: Optional evidence type filter
-        x_user_id: User ID from API gateway header
+        x_user_id: User ID from API gateway header (for future authorization)
         db: Database session
         manager: Evidence manager
 
     Returns:
         Paginated list of evidence
+
+    Note:
+        Authorization through case ownership should be handled at API gateway
     """
     # Enforce page size limits
     page_size = min(page_size, settings.max_page_size)
 
     # Get evidence list
-    evidence_list, total = await manager.list_user_evidence(
-        user_id=x_user_id,
+    evidence_list, total = await manager.list_case_evidence(
+        case_id=case_id,
         db=db,
         page=page,
         page_size=page_size,
-        case_id=case_id,
         evidence_type=evidence_type
     )
 
@@ -291,23 +306,25 @@ async def get_case_evidence(
         case_id: Case ID
         page: Page number
         page_size: Items per page
-        x_user_id: User ID from API gateway header
+        x_user_id: User ID from API gateway header (for future authorization)
         db: Database session
         manager: Evidence manager
 
     Returns:
         Paginated list of case evidence
+
+    Note:
+        Authorization through case ownership should be handled at API gateway
     """
     # Enforce page size limits
     page_size = min(page_size, settings.max_page_size)
 
     # Get evidence for case
-    evidence_list, total = await manager.list_user_evidence(
-        user_id=x_user_id,
+    evidence_list, total = await manager.list_case_evidence(
+        case_id=case_id,
         db=db,
         page=page,
-        page_size=page_size,
-        case_id=case_id
+        page_size=page_size
     )
 
     # Convert to list items
@@ -350,7 +367,7 @@ async def link_evidence_to_case(
     Args:
         evidence_id: Evidence ID
         request: Link request with case_id
-        x_user_id: User ID from API gateway header
+        x_user_id: User ID from API gateway header (for logging)
         db: Database session
         manager: Evidence manager
 
@@ -358,12 +375,14 @@ async def link_evidence_to_case(
         Success message
 
     Raises:
-        404: Evidence not found or unauthorized
+        404: Evidence not found
+
+    Note:
+        Authorization through case ownership should be handled at API gateway
     """
     linked = await manager.link_to_case(
         evidence_id=evidence_id,
         case_id=request.case_id,
-        user_id=x_user_id,
         db=db
     )
 

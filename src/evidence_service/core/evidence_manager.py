@@ -89,8 +89,8 @@ class EvidenceManager:
         self,
         file_content: bytes,
         filename: str,
-        user_id: str,
-        case_id: Optional[str] = None,
+        case_id: str,
+        uploaded_by: str,
         description: Optional[str] = None,
         db: AsyncSession = None
     ) -> Evidence:
@@ -100,8 +100,8 @@ class EvidenceManager:
         Args:
             file_content: File bytes
             filename: Original filename
-            user_id: User ID from X-User-ID header
-            case_id: Optional case ID to link
+            case_id: Case ID to link evidence to (required)
+            uploaded_by: User ID from X-User-ID header
             description: Optional description
             db: Database session
 
@@ -125,9 +125,8 @@ class EvidenceManager:
         # Classify evidence type
         evidence_type = self._classify_evidence_type(filename, file_type)
 
-        # Build storage key (user_id/case_id/evidence_id_filename)
-        case_dir = case_id or "unlinked"
-        storage_key = f"{user_id}/{case_dir}/{evidence_id}_{filename}"
+        # Build storage key (case_id/evidence_id_filename)
+        storage_key = f"{case_id}/{evidence_id}_{filename}"
 
         # Save file to storage using StorageProvider interface
         file_stream = BytesIO(file_content)
@@ -135,14 +134,13 @@ class EvidenceManager:
             file_stream=file_stream,
             key=storage_key,
             content_type=file_type,
-            user_id=user_id,
+            user_id=uploaded_by,
             case_id=case_id
         )
 
         # Create Evidence model
         evidence = Evidence(
             evidence_id=evidence_id,
-            user_id=user_id,
             case_id=case_id,
             filename=filename,
             file_type=file_type,
@@ -151,14 +149,13 @@ class EvidenceManager:
             evidence_type=evidence_type,
             description=description,
             uploaded_at=datetime.utcnow(),
-            uploaded_by=user_id
+            uploaded_by=uploaded_by
         )
 
         # Save metadata to database
         if db:
             evidence_db = EvidenceDB(
                 evidence_id=evidence.evidence_id,
-                user_id=evidence.user_id,
                 case_id=evidence.case_id,
                 filename=evidence.filename,
                 file_type=evidence.file_type,
@@ -176,24 +173,22 @@ class EvidenceManager:
         logger.info(f"Uploaded evidence: {evidence_id} ({filename})")
         return evidence
 
-    async def get_evidence(self, evidence_id: str, user_id: str, db: AsyncSession) -> Optional[Evidence]:
+    async def get_evidence(self, evidence_id: str, db: AsyncSession) -> Optional[Evidence]:
         """
         Get evidence metadata
 
         Args:
             evidence_id: Evidence ID
-            user_id: User ID (for authorization)
             db: Database session
 
         Returns:
             Evidence metadata or None
+
+        Note:
+            Authorization should be handled at the API gateway level
+            by checking case ownership
         """
-        stmt = select(EvidenceDB).where(
-            and_(
-                EvidenceDB.evidence_id == evidence_id,
-                EvidenceDB.user_id == user_id
-            )
-        )
+        stmt = select(EvidenceDB).where(EvidenceDB.evidence_id == evidence_id)
         result = await db.execute(stmt)
         evidence_db = result.scalar_one_or_none()
 
@@ -202,7 +197,6 @@ class EvidenceManager:
 
         return Evidence(
             evidence_id=evidence_db.evidence_id,
-            user_id=evidence_db.user_id,
             case_id=evidence_db.case_id,
             filename=evidence_db.filename,
             file_type=evidence_db.file_type,
@@ -215,13 +209,12 @@ class EvidenceManager:
             uploaded_by=evidence_db.uploaded_by
         )
 
-    async def download_evidence(self, evidence_id: str, user_id: str, db: AsyncSession) -> tuple[bytes, str]:
+    async def download_evidence(self, evidence_id: str, db: AsyncSession) -> tuple[bytes, str]:
         """
         Download evidence file
 
         Args:
             evidence_id: Evidence ID
-            user_id: User ID (for authorization)
             db: Database session
 
         Returns:
@@ -229,9 +222,13 @@ class EvidenceManager:
 
         Raises:
             FileNotFoundError: If evidence not found
+
+        Note:
+            Authorization should be handled at the API gateway level
+            by checking case ownership
         """
         # Get metadata
-        evidence = await self.get_evidence(evidence_id, user_id, db)
+        evidence = await self.get_evidence(evidence_id, db)
         if not evidence:
             raise FileNotFoundError(f"Evidence not found: {evidence_id}")
 
@@ -243,20 +240,23 @@ class EvidenceManager:
         file_content = b''.join(file_chunks)
         return file_content, evidence.filename
 
-    async def delete_evidence(self, evidence_id: str, user_id: str, db: AsyncSession) -> bool:
+    async def delete_evidence(self, evidence_id: str, db: AsyncSession) -> bool:
         """
         Delete evidence
 
         Args:
             evidence_id: Evidence ID
-            user_id: User ID (for authorization)
             db: Database session
 
         Returns:
             True if deleted, False if not found
+
+        Note:
+            Authorization should be handled at the API gateway level
+            by checking case ownership
         """
         # Get metadata first
-        evidence = await self.get_evidence(evidence_id, user_id, db)
+        evidence = await self.get_evidence(evidence_id, db)
         if not evidence:
             return False
 
@@ -275,34 +275,33 @@ class EvidenceManager:
         logger.info(f"Deleted evidence: {evidence_id}")
         return True
 
-    async def list_user_evidence(
+    async def list_case_evidence(
         self,
-        user_id: str,
+        case_id: str,
         db: AsyncSession,
         page: int = 1,
         page_size: int = 50,
-        case_id: Optional[str] = None,
         evidence_type: Optional[EvidenceType] = None
     ) -> tuple[List[Evidence], int]:
         """
-        List user's evidence with pagination and filtering
+        List evidence for a case with pagination and filtering
 
         Args:
-            user_id: User ID
+            case_id: Case ID to list evidence for
             db: Database session
             page: Page number (1-indexed)
             page_size: Items per page
-            case_id: Optional case ID filter
             evidence_type: Optional evidence type filter
 
         Returns:
             Tuple of (evidence_list, total_count)
+
+        Note:
+            Authorization should be handled at the API gateway level
+            by checking case ownership
         """
         # Build query
-        conditions = [EvidenceDB.user_id == user_id]
-
-        if case_id:
-            conditions.append(EvidenceDB.case_id == case_id)
+        conditions = [EvidenceDB.case_id == case_id]
 
         if evidence_type:
             conditions.append(EvidenceDB.evidence_type == evidence_type.value)
@@ -328,7 +327,6 @@ class EvidenceManager:
         evidence_list = [
             Evidence(
                 evidence_id=e.evidence_id,
-                user_id=e.user_id,
                 case_id=e.case_id,
                 filename=e.filename,
                 file_type=e.file_type,
@@ -345,25 +343,23 @@ class EvidenceManager:
 
         return evidence_list, total_count
 
-    async def link_to_case(self, evidence_id: str, case_id: str, user_id: str, db: AsyncSession) -> bool:
+    async def link_to_case(self, evidence_id: str, case_id: str, db: AsyncSession) -> bool:
         """
         Link evidence to a case
 
         Args:
             evidence_id: Evidence ID
             case_id: Case ID
-            user_id: User ID (for authorization)
             db: Database session
 
         Returns:
             True if linked, False if not found
+
+        Note:
+            Authorization should be handled at the API gateway level
+            by checking case ownership
         """
-        stmt = select(EvidenceDB).where(
-            and_(
-                EvidenceDB.evidence_id == evidence_id,
-                EvidenceDB.user_id == user_id
-            )
-        )
+        stmt = select(EvidenceDB).where(EvidenceDB.evidence_id == evidence_id)
         result = await db.execute(stmt)
         evidence_db = result.scalar_one_or_none()
 

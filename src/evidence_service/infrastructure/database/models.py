@@ -17,8 +17,7 @@ class EvidenceDB(Base):
     __tablename__ = "evidence"
 
     evidence_id = Column(String(36), primary_key=True, index=True)
-    user_id = Column(String(100), nullable=False, index=True)
-    case_id = Column(String(100), nullable=True, index=True)
+    case_id = Column(String(100), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     file_type = Column(String(100), nullable=False)
     file_size = Column(Integer, nullable=False)

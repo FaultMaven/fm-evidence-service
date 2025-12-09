@@ -7,6 +7,7 @@ Async SQLAlchemy database connection and session management.
 import logging
 from typing import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from fm_core_lib.utils import service_startup_retry
@@ -35,7 +36,7 @@ class DatabaseClient:
             raise RuntimeError("Engine not initialized. Call initialize() first.")
 
         async with self.engine.begin() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         logger.info("Database connection verified")
 
     async def initialize(self):
@@ -82,7 +83,7 @@ class DatabaseClient:
         """Check database health"""
         try:
             async with self.get_session() as session:
-                await session.execute("SELECT 1")
+                await session.execute(text("SELECT 1"))
             return True
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
