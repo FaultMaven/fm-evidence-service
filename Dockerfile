@@ -25,13 +25,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install fm-core-lib FIRST (needed by requirements.txt if poetry export didn't fallback)
+COPY --from=builder /app/fm-core-lib/ ./fm-core-lib/
+RUN pip install --no-cache-dir ./fm-core-lib
+
 # Copy requirements and install
 COPY --from=builder /app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install fm-core-lib
-COPY --from=builder /app/fm-core-lib/ ./fm-core-lib/
-RUN pip install --no-cache-dir ./fm-core-lib
 
 # Copy source code and migrations
 COPY src/ ./src/
