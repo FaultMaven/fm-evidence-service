@@ -61,7 +61,40 @@ app.include_router(evidence_router)
 
 
 # Root endpoint
-@app.get("/")
+@app.get(
+    "/",
+    summary="Service Information",
+    description="""
+Returns basic information about the Evidence Service.
+
+**Workflow**:
+1. Returns service identification and version
+2. Reports current environment and status
+3. Provides quick service discovery
+
+**Response Example**:
+```json
+{
+  "service": "fm-evidence-service",
+  "version": "0.1.0",
+  "status": "running",
+  "environment": "production"
+}
+```
+
+**Use Cases**:
+- Service discovery and identification
+- Quick status verification
+- API exploration and debugging
+- Integration testing
+
+**Authorization**: None required (public endpoint)
+**Rate Limits**: None
+    """,
+    responses={
+        200: {"description": "Service information returned successfully"}
+    }
+)
 async def root():
     """Root endpoint"""
     return {
@@ -73,7 +106,42 @@ async def root():
 
 
 # Health endpoint (simple version at root level)
-@app.get("/health")
+@app.get(
+    "/health",
+    summary="Health Check",
+    description="""
+Returns the health status of the Evidence Service.
+
+**Workflow**:
+1. Checks service availability
+2. Reports service status and identification
+3. Returns lightweight health indicator
+
+**Response Example**:
+```json
+{
+  "status": "healthy",
+  "service": "fm-evidence-service"
+}
+```
+
+**Use Cases**:
+- Kubernetes liveness/readiness probes
+- Load balancer health checks
+- Service mesh health monitoring
+- Docker Compose healthcheck
+- Uptime monitoring
+
+**Storage**: No database or storage query (lightweight check)
+**Rate Limits**: None
+**Authorization**: None required (public endpoint)
+
+**Note**: For detailed health checks including storage and database status, use `/api/v1/evidence/health` endpoint.
+    """,
+    responses={
+        200: {"description": "Service is healthy and operational"}
+    }
+)
 async def health():
     """Simple health check"""
     return {"status": "healthy", "service": settings.service_name}
